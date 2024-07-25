@@ -1,0 +1,14 @@
+{
+  "name": "stratos-logger",
+  "version": "1.0.1",
+  "main": "logger.js",
+  "types": "src/index.d.ts",
+  "scripts": {
+    "start": "node .",
+    "dev": "nodemon ."
+  },
+  "keywords": [],
+  "author": "Tundra8946 <gavin@stratostech.xyz> (https://stratostech.xyz/)",
+  "license": "ISC",
+  "description": ""
+}
