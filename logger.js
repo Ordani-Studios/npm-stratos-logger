@@ -37,16 +37,20 @@ exports.custom = (name, customFg, msg) => log(name, msg, customFg);
 
 exports.startup = async (project, color) => {
     try {
+        await exports.loadReplacements();
+
         const response = await fetch("https://cdn.stratostech.xyz/json/projects.json");
         const data = await response.json();
         const lines = data[project];
         if (!lines) return exports.error("Startup project not found");
+
         lines.forEach(line =>
             console.log(`${colors.fg.red}  |> ${colors.reset}(${colors.fg.darkGreen}STARTUP${colors.reset}) ${colors.fg[color]}${applyReplacements(line, color)}${colors.reset}`));
     } catch (error) {
         exports.error(`Error fetching startup project data: ${error.message}`);
     }
 };
+
 
 exports.loadReplacements = async () => {
     try {
@@ -60,7 +64,7 @@ exports.loadReplacements = async () => {
     }
 };
 
+
 const parseColors = text => text.replace(/{colors\.fg\.(\w+)}/g, (_, color) => colors.fg[color] || '');
 
-// Automatically load replacements on startup
 exports.loadReplacements();
