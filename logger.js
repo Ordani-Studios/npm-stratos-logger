@@ -17,9 +17,14 @@ const levels = {
 
 let replacements = {};
 
-const applyReplacements = (line, colorReset) =>
-    Object.entries(replacements).reduce((text, [search, replace]) =>
-        text.replace(search, replace + colors.fg[colorReset]), line);
+const applyReplacements = (line, colorReset) => {
+    let result = line;
+    Object.entries(replacements).forEach(([search, replace]) => {
+        const regex = new RegExp(search, 'g');
+        result = result.replace(regex, `${replace}${colors.fg[colorReset]}`);
+    });
+    return result;
+};
 
 const log = (level, msg, customFg = null) => {
     const fgColor = customFg && colors.fg[customFg] ? customFg : levels[level] || 'white';
@@ -37,7 +42,7 @@ exports.startup = async (project, color) => {
         const lines = data[project];
         if (!lines) return exports.error("Startup project not found");
         lines.forEach(line =>
-            console.log(`${colors.fg.red}  |> ${colors.reset}(${colors.fg.darkGreen}STARTUP${colors.reset}) ${colors.fg[color]}${applyReplacements(line, color)}`));
+            console.log(`${colors.fg.red}  |> ${colors.reset}(${colors.fg.darkGreen}STARTUP${colors.reset}) ${colors.fg[color]}${applyReplacements(line, color)}${colors.reset}`));
     } catch (error) {
         exports.error(`Error fetching startup project data: ${error.message}`);
     }
