@@ -41,3 +41,6 @@ logger.startup();
 - **Colorful Output:** Different log levels are represented with distinct colors for clarity.
 - **Simple API:** Easy-to-use methods for logging various types of messages.
 
+# License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
