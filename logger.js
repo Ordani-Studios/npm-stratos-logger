@@ -1,70 +1,149 @@
-const colors = {
-    fg: {
+const colors = Object.freeze({
+    fg: Object.freeze({
         black: '\x1b[30m', red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[33m', blue: '\x1b[34m',
         magenta: '\x1b[35m', cyan: '\x1b[36m', white: '\x1b[37m', brightBlack: '\x1b[90m',
         brightRed: '\x1b[91m', brightGreen: '\x1b[92m', brightYellow: '\x1b[93m', brightBlue: '\x1b[94m',
-        brightMagenta: '\x1b[95m', brightCyan: '\x1b[96m', brightWhite: '\x1b[97m', darkGray: '\x1b[38;5;239m',
-        lightGray: '\x1b[38;5;245m', orange: '\x1b[38;5;208m', pink: '\x1b[38;5;213m', lightBlue: '\x1b[38;5;75m',
-        purple: '\x1b[38;5;55m', darkGreen: '\x1b[38;5;28m'
-    },
-    reset: '\x1b[0m'
+        brightMagenta: '\x1b[95m', brightCyan: '\x1b[96m', brightWhite: '\x1b[97m',
+        darkGray: '\x1b[38;5;239m', lightGray: '\x1b[38;5;245m', orange: '\x1b[38;5;208m',
+        pink: '\x1b[38;5;213m', lightBlue: '\x1b[38;5;75m', purple: '\x1b[38;5;55m', darkGreen: '\x1b[38;5;28m',
+    }),
+    reset: '\x1b[0m',
+});
+
+const levels = Object.freeze({
+    error: 'red',
+    success: 'green',
+    warning: 'yellow',
+    verbose: 'blue',
+    debug: 'brightYellow',
+    info: 'cyan',
+    notify: 'orange',
+    fatal: 'brightRed',
+    lvs: 'brightMagenta',
+});
+
+/** @type {Array<{regex: RegExp, replacement: string}>} */
+let replacements = [];
+
+const parseColors = (text) =>
+    text.replace(/{colors\.fg\.(\w+)}/g, (_, name) => colors.fg[name] ?? '');
+const toRegex = (search) => {
+    if (typeof search !== 'string') return new RegExp(String(search), 'g');
+    if (search.startsWith('/') && search.lastIndexOf('/') > 0) {
+        const last = search.lastIndexOf('/');
+        const body = search.slice(1, last);
+        const flags = search.slice(last + 1) || 'g';
+        return new RegExp(body, flags.includes('g') ? flags : flags + 'g');
+    }
+    // Escape literal
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(escaped, 'g');
 };
 
-const levels = {
-    error: 'red', success: 'green', warning: 'yellow', verbose: 'blue',
-    debug: 'brightYellow', info: 'cyan', notify: 'orange', fatal: 'brightRed'
+const validateFg = (fg) => {
+    if (!colors.fg[fg]) throw new Error(`Invalid color: fg=${fg}`);
+    return fg;
 };
 
-let replacements = {};
-
-const applyReplacements = (line, colorReset) => {
-    let result = line;
-    Object.entries(replacements).forEach(([search, replace]) => {
-        const regex = new RegExp(search, 'g');
-        result = result.replace(regex, `${replace}${colors.fg[colorReset]}`);
-    });
-    return result;
+const applyReplacements = (line, colorResetKey) => {
+    const resetSeq = colors.fg[colorResetKey] ?? '';
+    let out = line;
+    for (const { regex, replacement } of replacements) {
+        out = out.replace(regex, `${replacement}${resetSeq}`);
+    }
+    return out;
 };
+
+// --- Core logging ------------------------------------------------------------
+
+const prefix = `${colors.fg.red}  |> ${colors.reset}`;
 
 const log = (level, msg, customFg = null) => {
-    const fgColor = customFg && colors.fg[customFg] ? customFg : levels[level] || 'white';
-    if (!colors.fg[fgColor]) throw new Error(`Invalid color: fg=${fgColor}`);
-    console.log(`${colors.fg.red}  |> ${colors.reset}(${colors.fg[fgColor]}${level.toUpperCase()}${colors.reset}) > ${applyReplacements(msg, fgColor)}${colors.reset}`);
+    const fgKey = customFg && colors.fg[customFg] ? customFg : levels[level] || 'white';
+    validateFg(fgKey);
+    const levelTag = `${colors.fg[fgKey]}${String(level).toUpperCase()}${colors.reset}`;
+    const body = applyReplacements(String(msg), fgKey);
+    console.log(`${prefix}(${levelTag}) > ${body}${colors.reset}`);
 };
 
-Object.keys(levels).forEach(level => exports[level] = msg => log(level, msg));
-exports.custom = (name, customFg, msg) => log(name, msg, customFg);
+const levelFns = Object.fromEntries(
+    Object.keys(levels).map((lvl) => [lvl, (msg) => log(lvl, msg)])
+);
 
-exports.startup = async (project, color) => {
+// --- Public API --------------------------------------------------------------
+
+export const info = levelFns.info;
+export const error = levelFns.error;
+export const success = levelFns.success;
+export const warning = levelFns.warning;
+export const verbose = levelFns.verbose;
+export const debug = levelFns.debug;
+export const notify = levelFns.notify;
+export const fatal = levelFns.fatal;
+export const lvs = levelFns.lvs;
+
+export const custom = (name, customFg, msg) => log(name, msg, customFg);
+
+export async function loadReplacements(url = 'https://cdn.ordanistudio.com/json/replacements.json') {
     try {
-        await exports.loadReplacements();
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
 
-        const response = await fetch("https://cdn.stratostech.xyz/json/projects.json");
-        const data = await response.json();
-        const lines = data[project];
-        if (!lines) return exports.error("Startup project not found");
-
-        lines.forEach(line =>
-            console.log(`${colors.fg.red}  |> ${colors.reset}(${colors.fg.darkGreen}STARTUP${colors.reset}) ${colors.fg[color]}${applyReplacements(line, color)}${colors.reset}`));
-    } catch (error) {
-        exports.error(`Error fetching startup project data: ${error.message}`);
+        replacements = Object.entries(data).map(([search, value]) => ({
+            regex: toRegex(search),
+            replacement: parseColors(String(value)),
+        }));
+    } catch (e) {
+        try { error?.(`Error fetching replacements data: ${e.message}`); }
+        catch { console.error(`Error fetching replacements data: ${e.message}`); }
     }
-};
+}
 
+/**
+ * Manually set replacements (useful for tests or offline).
+ * @param {Record<string,string>} map
+ */
+export function setReplacements(map) {
+    replacements = Object.entries(map).map(([search, value]) => ({
+        regex: toRegex(search),
+        replacement: parseColors(String(value)),
+    }));
+}
 
-exports.loadReplacements = async () => {
+export async function startup(project, color = 'darkGreen', url = 'https://cdn.ordanistudio.com/json/projects.json') {
     try {
-        const response = await fetch("https://cdn.stratostech.xyz/json/replacements.json");
-        const data = await response.json();
-        replacements = Object.fromEntries(
-            Object.entries(data).map(([key, value]) => [key, parseColors(value)])
-        );
-    } catch (error) {
-        exports.error(`Error fetching replacements data: ${error.message}`);
+        await loadReplacements();
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        const lines = data?.[project];
+        if (!Array.isArray(lines) || lines.length === 0) {
+            error('Startup project not found');
+            return;
+        }
+        validateFg(color);
+
+        for (const line of lines) {
+            const body = applyReplacements(String(line), color);
+            console.log(`${prefix}(${colors.fg.darkGreen}STARTUP${colors.reset}) ${colors.fg[color]}${body}${colors.reset}`);
+        }
+    } catch (e) {
+        error(`Error fetching startup project data: ${e.message}`);
     }
+}
+
+const logger = {
+    colors, levels,
+    ...levelFns,
+    custom,
+    loadReplacements,
+    setReplacements,
+    startup,
 };
 
+export default logger;
 
-const parseColors = text => text.replace(/{colors\.fg\.(\w+)}/g, (_, color) => colors.fg[color] || '');
-
-exports.loadReplacements();
+loadReplacements().catch(() => { });
